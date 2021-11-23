@@ -1,4 +1,4 @@
-module github.com/jszwec/s3fs
+module github.com/libatomic/s3fs
 
 go 1.16
 
