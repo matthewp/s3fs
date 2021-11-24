@@ -3,9 +3,10 @@
 package s3fs
 
 import (
+	"bytes"
 	"errors"
 	"io/fs"
-	"path"
+	"os"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -56,7 +57,9 @@ func (f *S3FS) Open(name string) (fs.File, error) {
 	out, err := f.cl.GetObject(&s3.GetObjectInput{
 		Key:    &name,
 		Bucket: &f.bucket,
+		Range:  aws.String("bytes=0-1"),
 	})
+	defer out.Body.Close()
 
 	if err != nil {
 		if isNotFoundErr(err) {
@@ -85,22 +88,17 @@ func (f *S3FS) Open(name string) (fs.File, error) {
 		return stat(f.cl, f.bucket, name)
 	}
 
-	if out.ContentLength != nil && out.LastModified != nil {
-		// if we got all the information from GetObjectOutput
-		// then we can cache fileinfo instead of making
-		// another call in case Stat is called.
-		statFunc = func() (fs.FileInfo, error) {
-			return &fileInfo{
-				name:    path.Base(name),
-				size:    *out.ContentLength,
-				modTime: *out.LastModified,
-			}, nil
-		}
+	info, err := statFunc()
+	if err != nil {
+		return nil, err
 	}
 
 	return &file{
-		ReadCloser: out.Body,
-		stat:       statFunc,
+		s3:   f,
+		name: name,
+		stat: statFunc,
+		pos:  0,
+		size: int(info.Size()),
 	}, nil
 }
 
@@ -128,6 +126,42 @@ func (f *S3FS) ReadDir(name string) ([]fs.DirEntry, error) {
 		}
 	}
 	return d.ReadDir(-1)
+}
+
+func (f *S3FS) WriteFile(filename string, data []byte, perm fs.FileMode) error {
+	_, err := f.cl.PutObject(&s3.PutObjectInput{
+		Key:    &filename,
+		Bucket: &f.bucket,
+		Body:   bytes.NewReader(data),
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (f *S3FS) Rename(oldpath, newpath string) error {
+	if _, err := f.cl.CopyObject(&s3.CopyObjectInput{
+		Bucket:     &f.bucket,
+		Key:        aws.String(newpath),
+		CopySource: aws.String(oldpath),
+	}); err != nil {
+		return err
+	}
+
+	if _, err := f.cl.DeleteObject(&s3.DeleteObjectInput{
+		Bucket: &f.bucket,
+		Key:    aws.String(oldpath),
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (f *S3FS) MkdirAll(path string, perm os.FileMode) error {
+	return nil
 }
 
 func stat(s3cl s3iface.S3API, bucket, name string) (fs.FileInfo, error) {

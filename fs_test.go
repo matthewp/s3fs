@@ -16,7 +16,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/jszwec/s3fs"
+	"github.com/libatomic/s3fs"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
