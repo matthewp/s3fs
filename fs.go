@@ -59,8 +59,6 @@ func (f *S3FS) Open(name string) (fs.File, error) {
 		Bucket: &f.bucket,
 		Range:  aws.String("bytes=0-1"),
 	})
-	defer out.Body.Close()
-
 	if err != nil {
 		if isNotFoundErr(err) {
 			switch d, err := openDir(f.cl, f.bucket, name); {
@@ -83,6 +81,7 @@ func (f *S3FS) Open(name string) (fs.File, error) {
 			Err:  err,
 		}
 	}
+	defer out.Body.Close()
 
 	statFunc := func() (fs.FileInfo, error) {
 		return stat(f.cl, f.bucket, name)
