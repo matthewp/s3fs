@@ -1,11 +1,11 @@
 // Package s3fs provides a S3 implementation for Go1.16 filesystem interface.
-//
 package s3fs
 
 import (
 	"bytes"
 	"errors"
 	"io/fs"
+	"net/http"
 	"os"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -128,10 +128,15 @@ func (f *S3FS) ReadDir(name string) ([]fs.DirEntry, error) {
 }
 
 func (f *S3FS) WriteFile(filename string, data []byte, perm fs.FileMode) error {
+	mimeType := http.DetectContentType(data)
+
 	_, err := f.cl.PutObject(&s3.PutObjectInput{
 		Key:    &filename,
 		Bucket: &f.bucket,
 		Body:   bytes.NewReader(data),
+		Metadata: map[string]*string{
+			"Content-Type": &mimeType,
+		},
 	})
 	if err != nil {
 		return err
