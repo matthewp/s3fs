@@ -131,9 +131,10 @@ func (f *S3FS) WriteFile(filename string, data []byte, perm fs.FileMode) error {
 	mimeType := http.DetectContentType(data)
 
 	_, err := f.cl.PutObject(&s3.PutObjectInput{
-		Key:    &filename,
-		Bucket: &f.bucket,
-		Body:   bytes.NewReader(data),
+		Key:         &filename,
+		Bucket:      &f.bucket,
+		Body:        bytes.NewReader(data),
+		ContentType: &mimeType,
 		Metadata: map[string]*string{
 			"Content-Type": &mimeType,
 		},
