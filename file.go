@@ -148,6 +148,14 @@ func (f *file) Seek(offset int64, whence int) (int64, error) {
 	return f.offset, nil
 }
 
+func (f *file) ReadAt(p []byte, offset int64) (int, error) {
+	_, err := f.Seek(offset, io.SeekStart)
+	if err != nil {
+		return 0, err
+	}
+	return f.Read(p)
+}
+
 func (f file) Stat() (fs.FileInfo, error) { return f.stat() }
 
 type fileInfo struct {
