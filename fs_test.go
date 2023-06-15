@@ -2,6 +2,7 @@ package s3fs_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"errors"
 	"flag"
@@ -18,12 +19,10 @@ import (
 
 	"github.com/jszwec/s3fs"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
 
@@ -1262,7 +1261,7 @@ func TestDirRead(t *testing.T) {
 }
 
 type mockClient struct {
-	s3iface.S3API
+	*s3.Client
 	outs []s3.ListObjectsOutput
 	i    int
 }
@@ -1274,7 +1273,7 @@ func (c *mockClient) ListObjects(in *s3.ListObjectsInput) (*s3.ListObjectsOutput
 	}
 
 	return &s3.ListObjectsOutput{
-		IsTruncated: aws.Bool(false),
+		IsTruncated: false,
 	}, nil
 }
 
@@ -1295,7 +1294,7 @@ func newListOutput(dirs, files []string) (out s3.ListObjectsOutput) {
 	return out
 }
 
-func newClient(t *testing.T) s3iface.S3API {
+func newClient(t *testing.T) *s3.Client {
 	t.Helper()
 
 	cl := &http.Client{
@@ -1321,7 +1320,7 @@ func newClient(t *testing.T) s3iface.S3API {
 	return &modTimeTruncateClient{&metricClient{s3.New(s)}}
 }
 
-func writeFile(t *testing.T, cl s3iface.S3API, bucket, name string, data []byte) {
+func writeFile(t *testing.T, cl *s3.Client, bucket, name string, data []byte) {
 	t.Helper()
 
 	uploader := s3manager.NewUploaderWithClient(cl)
@@ -1335,10 +1334,10 @@ func writeFile(t *testing.T, cl s3iface.S3API, bucket, name string, data []byte)
 	}
 }
 
-func deleteFile(t *testing.T, cl s3iface.S3API, bucket, name string) {
+func deleteFile(t *testing.T, cl *s3.Client, bucket, name string) {
 	t.Helper()
 
-	_, err := cl.DeleteObject(&s3.DeleteObjectInput{
+	_, err := cl.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    &name,
 	})
@@ -1347,24 +1346,24 @@ func deleteFile(t *testing.T, cl s3iface.S3API, bucket, name string) {
 	}
 }
 
-func createBucket(t *testing.T, cl s3iface.S3API, bucket string) {
+func createBucket(t *testing.T, cl *s3.Client, bucket string) {
 	t.Helper()
 
-	_, err := cl.CreateBucket(&s3.CreateBucketInput{
+	_, err := cl.CreateBucket(context.TODO(), &s3.CreateBucketInput{
 		Bucket: &bucket,
 	})
 	if err != nil {
-		if awserr, ok := err.(awserr.Error); ok && awserr.Code() == s3.ErrCodeBucketAlreadyOwnedByYou {
-			return
-		}
+		//if awserr, ok := err.(awserr.Error); ok && awserr.Code() == s3.ErrCodeBucketAlreadyOwnedByYou {
+		//	return
+		//}
 		t.Fatal(err)
 	}
 }
 
-func cleanBucket(t *testing.T, cl s3iface.S3API, bucket string) {
+func cleanBucket(t *testing.T, cl *s3.Client, bucket string) {
 	t.Helper()
 
-	out, err := cl.ListObjects(&s3.ListObjectsInput{
+	out, err := cl.ListObjects(context.TODO(), &s3.ListObjectsInput{
 		Bucket: aws.String(bucket),
 	})
 	if err != nil {
@@ -1372,7 +1371,7 @@ func cleanBucket(t *testing.T, cl s3iface.S3API, bucket string) {
 	}
 
 	for _, o := range out.Contents {
-		_, err := cl.DeleteObject(&s3.DeleteObjectInput{
+		_, err := cl.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
 			Bucket: aws.String(bucket),
 			Key:    o.Key,
 		})
@@ -1391,18 +1390,18 @@ func envDefault(env, def string) string {
 
 type client struct {
 	MaxKeys *int64
-	s3iface.S3API
+	cl      *s3.Client
 }
 
 func (c *client) ListObjects(in *s3.ListObjectsInput) (*s3.ListObjectsOutput, error) {
 	if c.MaxKeys != nil {
 		in.MaxKeys = c.MaxKeys
 	}
-	return c.S3API.ListObjects(in)
+	return c.cl.ListObjects(in)
 }
 
 type modTimeTruncateClient struct {
-	s3iface.S3API
+	cl *s3.Client
 }
 
 // Minio returns modTime that includes microseconds if data comes from ListObjects
@@ -1410,7 +1409,7 @@ type modTimeTruncateClient struct {
 // To make this test pass while using Minio we build this client that truncates
 // modTimes to Second.
 func (c *modTimeTruncateClient) ListObjects(in *s3.ListObjectsInput) (*s3.ListObjectsOutput, error) {
-	out, err := c.S3API.ListObjects(in)
+	out, err := c.ListObjects(in)
 	if err != nil {
 		return out, err
 	}
@@ -1428,15 +1427,15 @@ var (
 )
 
 type metricClient struct {
-	s3iface.S3API
+	*s3.Client
 }
 
 func (c *metricClient) ListObjects(in *s3.ListObjectsInput) (*s3.ListObjectsOutput, error) {
 	atomic.AddInt64(&listC, 1)
-	return c.S3API.ListObjects(in)
+	return c.ListObjects(in)
 }
 
 func (c *metricClient) GetObject(in *s3.GetObjectInput) (*s3.GetObjectOutput, error) {
 	atomic.AddInt64(&getC, 1)
-	return c.S3API.GetObject(in)
+	return c.GetObject(in)
 }

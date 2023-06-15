@@ -1,6 +1,7 @@
 package s3fs
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -12,8 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-sdk-go/service/s3/s3iface"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 var (
@@ -23,7 +23,7 @@ var (
 )
 
 type file struct {
-	cl     s3iface.S3API
+	cl     S3Client
 	bucket string
 	name   string
 
@@ -33,8 +33,8 @@ type file struct {
 	eTag   string
 }
 
-func openFile(cl s3iface.S3API, bucket string, name string) (fs.File, error) {
-	out, err := cl.GetObject(&s3.GetObjectInput{
+func openFile(cl S3Client, bucket string, name string) (fs.File, error) {
+	out, err := cl.GetObject(context.TODO(), &s3.GetObjectInput{
 		Key:    &name,
 		Bucket: &bucket,
 	})
@@ -56,19 +56,19 @@ func openFile(cl s3iface.S3API, bucket string, name string) (fs.File, error) {
 	}, nil
 }
 
-func getStatFunc(cl s3iface.S3API, bucket string, name string, s3ObjOutput s3.GetObjectOutput) func() (fs.FileInfo, error) {
+func getStatFunc(cl S3Client, bucket string, name string, s3ObjOutput s3.GetObjectOutput) func() (fs.FileInfo, error) {
 	statFunc := func() (fs.FileInfo, error) {
 		return stat(cl, bucket, name)
 	}
 
-	if s3ObjOutput.ContentLength != nil && s3ObjOutput.LastModified != nil {
+	if s3ObjOutput.ContentLength > 0 && s3ObjOutput.LastModified != nil {
 		// if we got all the information from GetObjectOutput
 		// then we can cache fileinfo instead of making
 		// another call in case Stat is called.
 		statFunc = func() (fs.FileInfo, error) {
 			return &fileInfo{
 				name:    path.Base(name),
-				size:    *s3ObjOutput.ContentLength,
+				size:    s3ObjOutput.ContentLength,
 				modTime: *s3ObjOutput.LastModified,
 			}, nil
 		}
@@ -126,7 +126,7 @@ func (f *file) Seek(offset int64, whence int) (int64, error) {
 		return f.offset, nil
 	}
 
-	rawObject, err := f.cl.GetObject(
+	rawObject, err := f.cl.GetObject(context.TODO(),
 		&s3.GetObjectInput{
 			Bucket:  aws.String(f.bucket),
 			Key:     aws.String(f.name),
